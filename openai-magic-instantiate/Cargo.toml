@@ -1,6 +1,6 @@
 [package]
 name = "openai-magic-instantiate"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Grant Slatton <grantslatton@gmail.com>"]
 include = ["src/**/*", "Cargo.toml"]
 description = "Use LLMs to instantiate well-typed values"
@@ -15,4 +15,4 @@ edition = "2021"
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order"] }
 async-openai = "0.18"
-openai-magic-instantiate-derive = "0.1.3"
+openai-magic-instantiate-derive = "0.1.4"

@@ -399,7 +399,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                         fn definition() -> String { "".to_string() }
 
                         fn validate(value: &openai_magic_instantiate::export::JsonValue) -> Result<Self, String> {
-                            let expected = Self::reference();
+                            let expected = stringify!(#variant_ident);
                             if value.as_str() == Some(expected.as_ref()) {
                                 Ok(Self)
                             } else {
