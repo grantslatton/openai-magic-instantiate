@@ -630,8 +630,6 @@ Use the exact type specified.",
         async move {
             let prompt = Self::prompt_for(instructions);
 
-            eprintln!("Prompt:\n\n{}", prompt);
-
             let mut messages: Vec<ChatCompletionRequestMessage> = vec![];
             messages.push(ChatCompletionRequestUserMessage {
                 role: Role::User,
@@ -663,8 +661,6 @@ Use the exact type specified.",
 
                 let content = choice.message.content.unwrap();
 
-                eprintln!("Response: {}", content);
-
                 messages.push(ChatCompletionRequestAssistantMessage {
                     content: Some(content.clone()),
                     role: Role::Assistant,
@@ -688,7 +684,6 @@ Use the exact type specified.",
 
                         match validated {
                             Err(e) => {
-                                eprintln!("Validation error: {}", e);
                                 messages.push(ChatCompletionRequestUserMessage {
                                     role: Role::User,
                                     content: format!("JSON object validation error:\n{e}\n\nCorrect the error in the next attempt.").into(),
@@ -706,16 +701,6 @@ Use the exact type specified.",
             Err(InstantiateError::MaxCorrectionsExceeded { messages })
         }
     }
-}
-
-#[macro_export]
-macro_rules! magic {
-    ($fmt_str:literal $(, $args:expr)*) => {
-        {
-            use $crate::MagicInstantiate;
-            $crate::MagicInstantiate::instantiate(format!($fmt_str, $($args)*)).await
-        }
-    };
 }
 
 /// A [`Validator`] that creates a minimum valid value constraint (i.e. a floor).

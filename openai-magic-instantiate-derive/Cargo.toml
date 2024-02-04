@@ -1,6 +1,6 @@
 [package]
 name = "openai-magic-instantiate-derive"
-version = "0.1.5"
+version = "0.1.6"
 authors = ["Grant Slatton <grantslatton@gmail.com>"]
 include = ["src/**/*", "Cargo.toml"]
 description = "Derive macro for `openai-magic-instantiate crate`"
