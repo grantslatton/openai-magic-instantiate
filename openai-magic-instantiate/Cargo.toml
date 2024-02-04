@@ -13,7 +13,6 @@ readme = "README.md"
 edition = "2021"
 
 [dependencies]
-serde = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 async-openai = "0.18"
 openai-magic-instantiate-derive = "0.1"
