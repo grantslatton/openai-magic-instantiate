@@ -343,7 +343,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
 
                 let mut variant_fields = vec![
                     quote! {
-                        kind: #variant_struct_kind,
+                        kind: stringify!(#variant_struct_kind).to_string(),
                     }
                 ];
 
