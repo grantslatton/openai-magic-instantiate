@@ -15,4 +15,4 @@ edition = "2021"
 [dependencies]
 serde_json = { version = "1", features = ["preserve_order"] }
 async-openai = "0.18"
-openai-magic-instantiate-derive = "0.1"
+openai-magic-instantiate-derive = "0.1.1"
