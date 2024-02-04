@@ -133,6 +133,30 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                     let field_types = fields.unnamed.iter().map(|f| &f.ty).collect::<Vec<_>>();
                     let field_indices = (0..field_types.len()).collect::<Vec<_>>();
                     let field_count = field_types.len();
+                    let type_definition = if field_count == 1 {
+                        quote! {
+                            result.push_str(&format!("type {} = {};", stringify!(#ident), references[0]));
+                        }
+                    } else {
+                        quote! {
+                            result.push_str(&format!("type {} = [{}];", stringify!(#ident), references.join(", ")));
+                        }
+                    };
+                    let validate_definition = if field_count == 1 {
+                        let field_type = &field_types[0];
+                        quote! {
+                            let value = <#field_type>::validate(value)?;
+                            let result = Self(value);
+                        }
+                    } else {
+                        quote! {
+                            let openai_magic_instantiate::export::JsonValue::Array(value) = value else { return Err(format!("Expected array tuple, got {}", openai_magic_instantiate::JsonValueExt::type_str(value))) };
+                            if value.len() != #field_count {
+                                return Err(format!("Expected {} elements but got {}", #field_count, value.len()));
+                            }
+                            let result = Self(#(#field_types::validate(&value[#field_indices])?),*);
+                        }
+                    };
                     quote! {
                         impl #impl_generics MagicInstantiate for #ident #ty_generics #where_clause {
                             fn name() -> String {
@@ -156,7 +180,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                                     }
                                 )*
                                 let references = vec![#(<#field_types>::reference()),*];
-                                result.push_str(&format!("type {} = [{}];", stringify!(#ident), references.join(", ")));
+                                #type_definition
                             }
 
                             fn add_dependencies(builder: &mut openai_magic_instantiate::TypeScriptAccumulator) {
@@ -166,11 +190,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                             }
                     
                             fn validate(value: &openai_magic_instantiate::export::JsonValue) -> Result<Self, String> {
-                                let openai_magic_instantiate::export::JsonValue::Array(value) = value else { return Err(format!("Expected array tuple, got {}", openai_magic_instantiate::JsonValueExt::type_str(value))) };
-                                if value.len() != #field_count {
-                                    return Err(format!("Expected {} elements but got {}", #field_count, value.len()));
-                                }
-                                let result = Self(#(#field_types::validate(&value[#field_indices])?),*);
+                                #validate_definition
                                 #(
                                     #definition_validators
                                 )*
@@ -308,6 +328,12 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
             let mut variant_struct_to_variants = vec![];
 
             for variant in variants {
+                let variant_attributes = variant
+                    .attrs
+                    .iter()
+                    .filter(|a| a.path().is_ident("magic"))
+                    .collect::<Vec<_>>();
+
                 let variant_ident = variant.ident;
                 let variant_struct_name = syn::Ident::new(&format!("{}{}", ident, variant_ident), proc_macro2::Span::call_site());
                 variant_struct_names.push(variant_struct_name.clone());
@@ -384,6 +410,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                     }
 
                     #[derive(MagicInstantiate)]
+                    #(#variant_attributes)*
                     struct #variant_struct_name {
                         #(#variant_fields)*
                     }
@@ -537,7 +564,7 @@ type {name} = number;
 pub fn implement_tuples(_input: TokenStream) -> TokenStream {
     let mut results = vec![];
 
-    for i in 1..16usize {
+    for i in 2..16usize {
 
         let generic_names = (1..=i).map(|i| syn::Ident::new(&format!("T{}", i), proc_macro2::Span::call_site())).collect::<Vec<_>>();
         let indexes = (0..i).collect::<Vec<_>>();

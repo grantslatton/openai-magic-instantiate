@@ -384,6 +384,33 @@ impl_for_float!(f32 f64);
 implement_integers!();
 implement_tuples!();
 
+// 1-tuple is handled separately
+impl<T: MagicInstantiate> MagicInstantiate for (T,) {
+    fn name() -> String {
+        T::name()
+    }
+
+    fn reference() -> String {
+        T::reference()
+    }
+
+    fn definition() -> String {
+        T::definition()
+    }
+
+    fn add_dependencies(builder: &mut TypeScriptAccumulator) {
+        builder.add::<T>();
+    }
+
+    fn validate(value: &JsonValue) -> Result<Self, String> {
+        T::validate(value).map(|t| (t,))
+    }
+
+    fn default_if_omitted() -> Option<Self> {
+        T::default_if_omitted().map(|t| (t,))
+    }
+}
+
 #[derive(Debug)]
 pub enum InstantiateError {
     /// The model was unable to instantiate a validated value. The messages contain the chat history for debugging purposes.
