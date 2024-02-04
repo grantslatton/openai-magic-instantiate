@@ -343,7 +343,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
 
                 let mut variant_fields = vec![
                     quote! {
-                        kind: stringify!(#variant_struct_kind).to_string(),
+                        kind: #variant_struct_kind,
                     }
                 ];
 
@@ -393,7 +393,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                             stringify!(#variant_ident).to_string()
                         }
                         fn reference() -> String {
-                            stringify!(#variant_ident).to_string()
+                            format!("\"{}\"", stringify!(#variant_ident))
                         }
                         fn add_dependencies(builder: &mut openai_magic_instantiate::TypeScriptAccumulator) {}
                         fn definition() -> String { "".to_string() }
