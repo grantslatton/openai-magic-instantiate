@@ -606,7 +606,6 @@ User request:
 {}
 
 Give the result as a JSON value of type {}.
-Use minified JSON on a single line.
 Use the exact type specified.",
             definitions, instructions, name
         )
