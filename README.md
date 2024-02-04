@@ -1,5 +1,9 @@
 # Magic Instantiate
 
+## Documentation
+
+Read the full documentation [here](https://docs.rs/openai-magic-instantiate/latest/openai_magic_instantiate/).
+
 ## Quickstart
 
 ```rust
