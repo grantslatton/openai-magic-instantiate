@@ -284,7 +284,10 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                             }
                     
                             fn validate(value: &openai_magic_instantiate::export::JsonValue) -> Result<Self, String> {
-                                let openai_magic_instantiate::export::JsonValue::Object(value) = value else { return Err(format!("Expected object with fields {:?}, got {}", [#(#field_names_camel),*], openai_magic_instantiate::JsonValueExt::type_str(value))) };
+                                let openai_magic_instantiate::export::JsonValue::Object(value) = value else { 
+                                    let expected: &[&str] = &[#(#field_names_camel),*];
+                                    return Err(format!("Expected object with fields {:?}, got {}", expected, openai_magic_instantiate::JsonValueExt::type_str(value)))
+                                };
                                 let result = Self {
                                     #(
                                         #field_idents: {

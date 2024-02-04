@@ -708,6 +708,16 @@ Use the exact type specified.",
     }
 }
 
+#[macro_export]
+macro_rules! magic {
+    ($fmt_str:literal $(, $args:expr)*) => {
+        {
+            use $crate::MagicInstantiate;
+            $crate::MagicInstantiate::instantiate(format!($fmt_str, $($args)*)).await
+        }
+    };
+}
+
 /// A [`Validator`] that creates a minimum valid value constraint (i.e. a floor).
 pub struct Min<T>(pub T);
 
