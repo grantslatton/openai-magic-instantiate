@@ -1,0 +1,21 @@
+[package]
+name = "openai-magic-instantiate-derive"
+version = "0.1.0"
+authors = ["Grant Slatton <grantslatton@gmail.com>"]
+include = ["src/**/*", "Cargo.toml"]
+description = "Derive macro for `openai-magic-instantiate crate`"
+homepage = "https://github.com/grantslatton/openai-magic-instantiate"
+repository = "https://github.com/grantslatton/openai-magic-instantiate"
+keywords = ["openai", "llm", "schema", "derive", "magic"]
+categories = ["ai", "llm"]
+license = "MIT"
+edition = "2021"
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "extra-traits"] }
+heck = "0.4"
+
+[lib]
+proc-macro = true

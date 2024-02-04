@@ -1,0 +1,19 @@
+[package]
+name = "openai-magic-instantiate"
+version = "0.1.0"
+authors = ["Grant Slatton <grantslatton@gmail.com>"]
+include = ["src/**/*", "Cargo.toml"]
+description = "Use LLMs to instantiate well-typed values"
+homepage = "https://github.com/grantslatton/openai-magic-instantiate"
+repository = "https://github.com/grantslatton/openai-magic-instantiate"
+keywords = ["openai", "llm", "schema", "derive", "magic"]
+categories = ["ai", "llm"]
+license = "MIT"
+readme = "README.md"
+edition = "2021"
+
+[dependencies]
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+async-openai = "0.18"
+openai-magic-instantiate-derive = "0.1"
