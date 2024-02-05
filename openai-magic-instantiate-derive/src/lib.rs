@@ -96,6 +96,22 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
     }
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
+    let generic_types = generics.params.iter().map(|p| {
+        match p {
+            syn::GenericParam::Type(type_param) => &type_param.ident,
+            syn::GenericParam::Lifetime(_) => panic!("Lifetime parameters are not supported"),
+            syn::GenericParam::Const(_) => panic!("Const parameters are not supported"),
+        }
+    }).collect::<Vec<_>>();
+
+    let name = quote ! {
+        let mut result = stringify!(#ident).to_string();
+        #(
+            result.push_str(&format!("{}", <#generic_types>::name()));
+        )*
+        result
+    };
+
     match data {
         Data::Struct(DataStruct { fields, .. }) => {
             match &fields {
@@ -103,7 +119,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                     quote! {
                         impl #impl_generics MagicInstantiate for #ident #ty_generics #where_clause {
                             fn name() -> String {
-                                stringify!(#ident).to_string()
+                                #name
                             }
 
                             fn reference() -> String {
@@ -118,13 +134,17 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                                 ()::add_dependencies(builder)
                             }
                     
-                            fn validate(value: &openai_magic_instantiate::export::JsonValue) -> Result<Self, String> {
+                            fn validate(value: &openai_magic_instantiate::export::JsonValue) -> std::result::Result<Self, String> {
                                 ()::validate(value)?;
                                 Ok(Self)
                             }
                     
                             fn default_if_omitted() -> Option<Self> {
                                 Some(Self)
+                            }
+
+                            fn is_object() -> bool {
+                                false
                             }
                         }
                     }
@@ -160,7 +180,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                     quote! {
                         impl #impl_generics MagicInstantiate for #ident #ty_generics #where_clause {
                             fn name() -> String {
-                                stringify!(#ident).to_string()
+                                #name
                             }
 
                             fn reference() -> String {
@@ -189,7 +209,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                                 )*
                             }
                     
-                            fn validate(value: &openai_magic_instantiate::export::JsonValue) -> Result<Self, String> {
+                            fn validate(value: &openai_magic_instantiate::export::JsonValue) -> std::result::Result<Self, String> {
                                 #validate_definition
                                 #(
                                     #definition_validators
@@ -199,6 +219,10 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                     
                             fn default_if_omitted() -> Option<Self> {
                                 Some(#ident(#(<#field_types>::default_if_omitted()?),*))
+                            }
+
+                            fn is_object() -> bool {
+                                false
                             }
                         }
                     }
@@ -248,7 +272,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                     quote! {
                         impl #impl_generics MagicInstantiate for #ident #ty_generics #where_clause {
                             fn name() -> String {
-                                stringify!(#ident).to_string()
+                                #name 
                             }
 
                             fn reference() -> String {
@@ -283,7 +307,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                                 )*
                             }
                     
-                            fn validate(value: &openai_magic_instantiate::export::JsonValue) -> Result<Self, String> {
+                            fn validate(value: &openai_magic_instantiate::export::JsonValue) -> std::result::Result<Self, String> {
                                 let openai_magic_instantiate::export::JsonValue::Object(value) = value else { 
                                     let expected: &[&str] = &[#(#field_names_camel),*];
                                     return Err(format!("Expected object with fields {:?}, got {}", expected, openai_magic_instantiate::JsonValueExt::type_str(value)))
@@ -319,6 +343,10 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                                     )*
                                 })
                             }
+
+                            fn is_object() -> bool {
+                                true
+                            }
                         }
                     } 
                 },
@@ -329,6 +357,10 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
             let mut variant_struct_names = vec![];
             let mut variant_struct_kinds = vec![];
             let mut variant_struct_to_variants = vec![];
+
+            if generics.params.len() > 0 {
+                panic!("Enums with generics are not supported");
+            } 
 
             for variant in variants {
                 let variant_attributes = variant
@@ -401,7 +433,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                         fn add_dependencies(builder: &mut openai_magic_instantiate::TypeScriptAccumulator) {}
                         fn definition() -> String { "".to_string() }
 
-                        fn validate(value: &openai_magic_instantiate::export::JsonValue) -> Result<Self, String> {
+                        fn validate(value: &openai_magic_instantiate::export::JsonValue) -> std::result::Result<Self, String> {
                             let expected = stringify!(#variant_ident);
                             if value.as_str() == Some(expected.as_ref()) {
                                 Ok(Self)
@@ -410,6 +442,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                             }
                         }
                         fn default_if_omitted() -> Option<Self> { None }
+                        fn is_object() -> bool { false }
                     }
 
                     #[derive(MagicInstantiate)]
@@ -425,7 +458,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
 
                 impl #impl_generics MagicInstantiate for #ident #ty_generics #where_clause {
                     fn name() -> String {
-                        stringify!(#ident).to_string()
+                        #name
                     }
 
                     fn reference() -> String {
@@ -458,7 +491,7 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
                         )*
                     }
             
-                    fn validate(value: &openai_magic_instantiate::export::JsonValue) -> Result<Self, String> {
+                    fn validate(value: &openai_magic_instantiate::export::JsonValue) -> std::result::Result<Self, String> {
                         let kind = value.get("kind").ok_or("Expected field 'kind'")?;
                         let kind = kind.as_str().ok_or_else(|| format!("Expected 'kind' to be a string, got {}", openai_magic_instantiate::JsonValueExt::type_str(value)))?;
                         let result = match kind {
@@ -478,6 +511,10 @@ pub fn derive_magic_instantiate(input: TokenStream) -> TokenStream {
             
                     fn default_if_omitted() -> Option<Self> {
                         None
+                    }
+
+                    fn is_object() -> bool {
+                        true
                     }
                 }
             }
@@ -558,6 +595,10 @@ type {name} = number;
                 fn default_if_omitted() -> Option<Self> {
                     None
                 }
+
+                fn is_object() -> bool {
+                    false
+                }
             }
         )*
     }.into()
@@ -603,6 +644,10 @@ pub fn implement_tuples(_input: TokenStream) -> TokenStream {
 
                 fn default_if_omitted() -> Option<Self> {
                     None
+                }
+
+                fn is_object() -> bool {
+                    false
                 }
             }
         });

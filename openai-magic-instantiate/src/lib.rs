@@ -2,7 +2,7 @@
 //! 
 //! The main trait is [`MagicInstantiate`] which can be derived automatically using the `#[derive(MagicInstantiate)]` macro.
 //! 
-//! For a type that implements [`MagicInstantiate`], you can call [`instantiate`](MagicInstantiate::instantiate) to get a value of that type:
+//! For a type that implements [`MagicInstantiate`], you can call [`instantiate`](ClientInstantiate::instantiate) to get a value of that type:
 //! 
 //! ```
 //! use openai_magic_instantiate::*;
@@ -43,8 +43,9 @@
 //! }
 //! 
 //! async fn example() {
-//!     let eisenhower = Person::instantiate("President of the United States in 1954").await.unwrap();
-//!     assert_eq!(eisenhower.name, "Dwight Eisenhower");
+//!     let client = async_openai::Client::new();
+//!     let person = client.instantiate::<Person>("President of the United States in 1954").await.unwrap();
+//!     assert_eq!(person.name, "Dwight Eisenhower");
 //! }
 //! ```
 //! 
@@ -76,24 +77,44 @@
 //! Use the exact type specified.
 //! ```
 //! 
+//! If you are just hacking up a quick script, you may find the [`make_magic!`] macro useful for reducing clutter.
+//! It generates a macro that you can use to instantiate values without having to pass the client around:
+//! 
+//! ```
+//! use openai_magic_instantiate::*;
+//! 
+//! #[derive(Debug, MagicInstantiate)]
+//! struct Person {
+//!     name: String,
+//!     year_of_birth: u32,
+//! } 
+//! 
+//! async fn example() {
+//!     make_magic!(async_openai::Client::new());
+//! 
+//!     let Person { name, year_of_birth } = magic!("President of the United States in 1954");
+//!     
+//!     assert_eq!(name, "Dwight D. Eisenhower");
+//! 
+//!     // You can also use the macro to pass in arguments to the prompt like in format strings
+//!     if magic!("{} was King of England", name) {
+//!         unreachable!("Eisenhower was not King of England");
+//!     }
+//! }
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
-use async_openai::config::OpenAIConfig;
 use async_openai::error::OpenAIError;
 use async_openai::types::{ChatCompletionRequestAssistantMessage, ChatCompletionRequestMessage, ChatCompletionRequestUserMessage, ChatCompletionResponseFormat, ChatCompletionResponseFormatType, CreateChatCompletionRequestArgs, Role};
-
-use async_openai::Client as OpenAIClient;
 use openai_magic_instantiate_derive::*;
 use serde_json::Value as JsonValue;
 
 extern crate self as openai_magic_instantiate;
 
-#[doc(hidden)]
 pub mod export;
 
 pub use openai_magic_instantiate_derive::MagicInstantiate;
@@ -198,6 +219,10 @@ impl MagicInstantiate for () {
     fn default_if_omitted() -> Option<Self> {
         Some(())
     }
+
+    fn is_object() -> bool {
+        false
+    }
 }
 
 /// `Option<T>` maps to `T | null` in TypeScript.
@@ -228,6 +253,10 @@ impl<T: MagicInstantiate> MagicInstantiate for Option<T> {
 
     fn default_if_omitted() -> Option<Self> {
         Some(None)
+    }
+
+    fn is_object() -> bool {
+        false
     }
 }
 
@@ -264,6 +293,10 @@ impl<T: MagicInstantiate> MagicInstantiate for Vec<T> {
     fn default_if_omitted() -> Option<Self> {
         None
     }
+
+    fn is_object() -> bool {
+        false
+    }
 }
 
 /// `Box<T>` maps to `T` in TypeScript.
@@ -292,6 +325,10 @@ impl<T: MagicInstantiate> MagicInstantiate for Box<T> {
     fn default_if_omitted() -> Option<Self> {
         Some(Box::new(T::default_if_omitted()?))
     }
+
+    fn is_object() -> bool {
+        T::is_object()
+    }
 }
 
 /// `String` maps to `string` in TypeScript.
@@ -318,6 +355,10 @@ impl MagicInstantiate for String {
     fn default_if_omitted() -> Option<Self> {
         None
     }
+
+    fn is_object() -> bool {
+        false
+    }
 }
 
 /// `bool` maps to `boolean` in TypeScript.
@@ -343,6 +384,10 @@ impl MagicInstantiate for bool {
 
     fn default_if_omitted() -> Option<Self> {
         None
+    }
+
+    fn is_object() -> bool {
+        false
     }
 }
 
@@ -373,6 +418,10 @@ macro_rules! impl_for_float {
 
                 fn default_if_omitted() -> Option<Self> {
                     None
+                }
+
+                fn is_object() -> bool {
+                    false
                 }
             }
         )*
@@ -409,6 +458,10 @@ impl<T: MagicInstantiate> MagicInstantiate for (T,) {
     fn default_if_omitted() -> Option<Self> {
         T::default_if_omitted().map(|t| (t,))
     }
+
+    fn is_object() -> bool {
+        T::is_object()
+    }
 }
 
 #[derive(Debug)]
@@ -423,9 +476,8 @@ pub enum InstantiateError {
     },
 }
 
-/// A wrapper around all the arguments needed to instantiate a value.
 #[derive(Debug, Clone)]
-pub struct MagicInstantiateParameters {
+pub struct ModelSettings {
     /// The name of the models to use, in order.
     /// 
     /// This is a `Vec` because the user might want to start with a weaker model and upgrade to a stronger one after a few validation failures.
@@ -433,34 +485,54 @@ pub struct MagicInstantiateParameters {
     pub models: Vec<String>,
     /// Corresponds to the OpenAI `temperature` parameter.
     pub temperature: f32,
-    /// The OpenAI client to use.
-    pub client: Arc<OpenAIClient<OpenAIConfig>>,
 }
 
 /// By default, the parameters are set to use the `gpt-3.5-turbo-1106` model for 3 validation 
-/// attempts, with a temperature of 0.0, and a fresh OpenAI client with default settings.
-impl Default for MagicInstantiateParameters {
+/// attempts, with a temperature of 0.0
+impl Default for ModelSettings {
     fn default() -> Self {
-        MagicInstantiateParameters {
+        ModelSettings {
             models: vec!["gpt-3.5-turbo-1106".to_string(); 3],
             temperature: 0.0,
-            client: Arc::new(OpenAIClient::new()),
         }
     }
 }
 
-static GLOBAL_PARAMETERS: OnceLock<Mutex<MagicInstantiateParameters>> = OnceLock::new();
+/// A wrapper around all the arguments needed to instantiate a value.
+#[derive(Debug, Clone)]
+pub struct MagicInstantiateParameters {
+    pub model_settings: ModelSettings,
+    /// The user's instructions for how they want the value to be instantiated.
+    pub instructions: String,
+    /// User-provided chat history if it would give the model needed context to generate a value.
+    /// 
+    /// It is possible to use this crate without ever providing `messages_history` and just using `instructions` to
+    /// provide the context, however just providing `messages_history` can be more erognomic for some users.
+    pub messages_history: Vec<ChatCompletionRequestMessage>,
+}
+
+impl Default for MagicInstantiateParameters {
+    fn default() -> Self {
+        MagicInstantiateParameters {
+            model_settings: Default::default(),
+            messages_history: vec![],
+            instructions: "".to_string(),
+        }
+    }
+}
+
+static GLOBAL_MODEL_SETTINGS: OnceLock<Mutex<ModelSettings>> = OnceLock::new();
 
 /// If you want to set some global parameters for all instantiations, you can use this function to mutate them.
-pub fn mutate_global_parameters(f: impl FnOnce(&mut MagicInstantiateParameters)) {
-    let lock = GLOBAL_PARAMETERS.get_or_init(|| Default::default());
+pub fn mutate_global_model_settings(f: impl FnOnce(&mut ModelSettings)) {
+    let lock = GLOBAL_MODEL_SETTINGS.get_or_init(|| Default::default());
     let mut lock = lock.lock().unwrap();
     f(&mut *lock);
 }
 
-/// Get a copy of the current global parameters used for [`instantiate`](MagicInstantiate::instantiate).
-pub fn get_global_parameters() -> MagicInstantiateParameters {
-    let lock = GLOBAL_PARAMETERS.get_or_init(|| Default::default());
+/// Get a copy of the current global model settings used for [`instantiate`](ClientInstantiate::instantiate).
+pub fn get_global_model_settings() -> ModelSettings {
+    let lock = GLOBAL_MODEL_SETTINGS.get_or_init(|| Default::default());
     let lock = lock.lock().unwrap();
     lock.clone()
 }
@@ -534,6 +606,10 @@ pub fn get_global_parameters() -> MagicInstantiateParameters {
 ///     fn default_if_omitted() -> Option<Self> {
 ///         None
 ///     }
+/// 
+///    fn is_object() -> bool {
+///        true
+///    }
 /// }
 /// ```
 ///       
@@ -588,6 +664,14 @@ pub trait MagicInstantiate: Any + Sized {
     /// Another case you might want to return `Some` is for a collection type where omission defaults to the empty collection.
     fn default_if_omitted() -> Option<Self>;
 
+    /// Whether or not this type maps to a TypeScript object.
+    /// 
+    /// This is needed because OpenAI JSON mode can only generate objects, so
+    /// if the user tries to instantiate a `bool`, this library must internally
+    /// convert it to an object with a single field, e.g. `{ value: bool }` and
+    /// then unwrap it back to a `bool` for validation.
+    fn is_object() -> bool;
+
     /// Convert this type into a prompt for the LLM.
     /// 
     /// The default implementation is pretty good and you probably don't need to override it.
@@ -600,54 +684,73 @@ pub trait MagicInstantiate: Any + Sized {
         let definitions = builder.definitions;
 
         format!("\
-{}
+{definitions}
 
 User request:
-{}
+{instructions}
 
-Give the result as a JSON value of type {}.
-Use the exact type specified.",
-            definitions, instructions, name
-        )
+Give the result as a JSON value of type {name}.
+Use the exact type specified.
+        ").trim().to_string()
     }
+}
 
-    /// Instantiate a value using the global parameters.
+/// An extension trait for [`OpenAIClient`](async_openai::Client) that adds a method to instantiate a value.
+pub trait ClientInstantiate {
+    /// Instantiate a value using the global model settings.
     /// 
-    /// Use [`mutate_global_parameters`] to set the global parameters.
+    /// Use [`mutate_global_model_settings`] to set them.
     /// 
-    /// See the [`instantiate_parameterized`](MagicInstantiate::instantiate_parameterized) method for more information.
-    fn instantiate(instructions: impl AsRef<str>) -> impl Future<Output = Result<Self, InstantiateError>> {
+    /// `instructions` is a string that describes how the user wants the value to be instantiated.
+    /// 
+    /// See the [`instantiate_parameterized`](ClientInstantiate::instantiate_parameterized) method for more information.
+    fn instantiate<T: MagicInstantiate>(&self, instructions: &str) -> impl Future<Output = Result<T, InstantiateError>> {
         async move {
-            let parameters = get_global_parameters();
-            Self::instantiate_parameterized(parameters, instructions.as_ref()).await
+            let parameters = MagicInstantiateParameters {
+                model_settings: get_global_model_settings(),
+                instructions: instructions.to_string(),
+                ..Default::default()
+            };
+            self.instantiate_parameterized(parameters).await
         }
     }
 
     /// Instantiate a value using custom parameters.
-    /// 
-    /// `instructions` is a string that describes how the user wants the value to be instantiated.
-    fn instantiate_parameterized(parameters: MagicInstantiateParameters, instructions: &str) -> impl Future<Output = Result<Self, InstantiateError>> {
-        async move {
-            let prompt = Self::prompt_for(instructions);
+    fn instantiate_parameterized<T: MagicInstantiate>(&self, parameters: MagicInstantiateParameters) -> impl Future<Output = Result<T, InstantiateError>>;
+}
 
-            let mut messages: Vec<ChatCompletionRequestMessage> = vec![];
+impl<C: async_openai::config::Config> ClientInstantiate for async_openai::Client<C> {
+    fn instantiate_parameterized<T: MagicInstantiate>(&self, parameters: MagicInstantiateParameters) -> impl Future<Output = Result<T, InstantiateError>> {
+        async move {
+
+            #[derive(MagicInstantiate)]
+            struct Result<T> {
+                value: T,
+            }
+
+            let prompt = if T::is_object() {
+                T::prompt_for(&parameters.instructions)
+            } else {
+                <Result<T>>::prompt_for(&parameters.instructions)
+            };
+
+            let mut messages: Vec<ChatCompletionRequestMessage> = parameters.messages_history;
             messages.push(ChatCompletionRequestUserMessage {
                 role: Role::User,
                 content: prompt.clone().into(),
                 ..Default::default()
             }.into());
 
-            for model in parameters.models {
+            for model in parameters.model_settings.models {
                 let request = CreateChatCompletionRequestArgs::default()
                     .model(model)
                     .messages(messages.clone())
-                    .temperature(parameters.temperature)
+                    .temperature(parameters.model_settings.temperature)
                     .response_format(ChatCompletionResponseFormat { r#type: ChatCompletionResponseFormatType::JsonObject })
                     .build()
                     .unwrap();
 
-                let response = parameters
-                    .client
+                let response = self
                     .chat()
                     .create(request)
                     .await
@@ -680,7 +783,12 @@ Use the exact type specified.",
                     }
                     Ok(value) => {
 
-                        let validated = Self::validate(&value);
+                        let validated = if T::is_object() {
+                            T::validate(&value)
+                        } else {
+                            let result = Result::<T>::validate(&value);
+                            result.map(|result| result.value)
+                        };
 
                         match validated {
                             Err(e) => {
@@ -700,6 +808,47 @@ Use the exact type specified.",
 
             Err(InstantiateError::MaxCorrectionsExceeded { messages })
         }
+    }
+}
+
+/// `make_magic!` is a macro that generates a macro that you can use to instantiate values without having to pass the client around.
+/// 
+/// The macro is generated with the name `magic` and can be used like this:
+/// 
+/// ```
+/// use openai_magic_instantiate::*;
+/// 
+/// async fn example() {
+///     // Calling with no arguments creates a new client, but
+///     // you can also pass in a client if you want
+///     make_magic!();
+/// 
+///     let value: u32 = magic!("The year of the Battle of Hastings");
+/// 
+///     assert_eq!(value, 1066);
+/// }
+/// ```
+#[macro_export]
+macro_rules! make_magic {
+    (@inner [$dollar:tt] [$client:expr]) => {
+        let client = $client;
+        macro_rules! magic {
+            ($instructions_fmt:literal $dollar(, $args:expr)* $dollar(,)?) => {
+                client.instantiate(&format!($instructions_fmt, $dollar($args),*)).await.unwrap()
+            };
+
+            ($instructions:expr) => {
+                client.instantiate(&$instructions).await.unwrap()
+            };
+        }
+    };
+
+    ($client:expr) => {
+        make_magic!(@inner [$] [$client]);
+    };
+
+    () => {
+        make_magic!(async_openai::Client::new());
     }
 }
 
@@ -916,5 +1065,79 @@ impl<T: MagicInstantiate> MagicInstantiate for IndexedArray<T> {
 
     fn default_if_omitted() -> Option<Self> {
         None
+    }
+
+    fn is_object() -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_instantiate() {
+        make_magic!();
+
+        #[derive(Debug, MagicInstantiate)]
+        struct Person {
+            #[magic(description = "Only first name and surname. Do not include middle initials.")]
+            name: String,
+            year_of_birth: u32,
+        }
+
+        let Person { name, year_of_birth } = magic!("President of the United States in 1954");
+
+        assert_eq!(name, "Dwight Eisenhower");
+        assert_eq!(year_of_birth, 1890);
+
+        if magic!("{name} was a Canadian prime minister") {
+            panic!("Eisenhower was not a Canadian prime minister");
+        }
+
+        #[derive(Debug, MagicInstantiate)]
+        struct Set<T> {
+            items: Vec<T>,
+        }
+
+        // Verify we generate separate TypeScript for both Set generic types
+        #[derive(Debug, MagicInstantiate)]
+        struct People {
+            names: Set<String>,
+            years_of_birth: Set<u32>,
+        }
+
+        let People { names, years_of_birth } = magic!("The names and years of birth of the first 3 presidents of the United States");
+
+        assert_eq!(names.items, vec!["George Washington", "John Adams", "Thomas Jefferson"]);
+        assert_eq!(years_of_birth.items, vec![1732, 1735, 1743]);
+
+        #[derive(Debug, MagicInstantiate)]
+        enum FamilyTree {
+            #[magic(description = "Name and year of birth, no titles or honorifcs")]
+            Leaf(String, u32),
+            Inner {
+                #[magic(description = "Name, no titles or honorifcs")]
+                name: String,
+                #[magic(description = "The depth of the generation, 0 for the first generation")]
+                generation_depth: u32,
+                mother: Option<Box<FamilyTree>>,
+                father: Option<Box<FamilyTree>>,
+            }
+        }
+
+        let tree = magic!("Start at Elizabeth II and go 2 generations deep");
+        let FamilyTree::Inner { name, generation_depth: 0, mother, .. } = tree else { panic!("{tree:?}") };
+        assert_eq!(name, "Elizabeth II");
+
+        let mother = mother.unwrap();
+        let FamilyTree::Inner { name, generation_depth: 1, father , ..} = *mother else { panic!("{mother:?}") };
+        assert_eq!(name, "Elizabeth Bowes-Lyon");
+
+        let father = father.unwrap();
+        let FamilyTree::Leaf(name, year_of_birth)  = *father else { panic!("{father:?}") };
+        assert_eq!(name, "Claude Bowes-Lyon");
+        assert_eq!(year_of_birth, 1855);
     }
 }
