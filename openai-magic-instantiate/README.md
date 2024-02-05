@@ -16,7 +16,13 @@ struct Person {
     year_of_birth: u32,
 }
 
-let person = Person::instantiate("The president of the USA in 1954").await?;
+let client = async_openai::Client::new();
+let person: Person = client.instantiate("The president of the USA in 1954").await?;
+
+// For even more ergonomics, use the `make_magic` macro to create the `magic!` macro
+make_magic!(client);
+
+let person: Person = magic!("The prime minister of the UK in 1954");
 ```
 
 Descriptions and validators can be applied at the field level, or the struct/enum level.
