@@ -69,7 +69,6 @@
 //!     yearOfBirth: U32;
 //! };
 //! 
-//! User request:
 //! President of the United States in 1954
 //! 
 //! Give the result as a JSON value of type Person.
@@ -686,7 +685,6 @@ pub trait MagicInstantiate: Any + Sized {
         format!("\
 {definitions}
 
-User request:
 {instructions}
 
 Give the result as a JSON value of type {name}.
@@ -1115,10 +1113,10 @@ mod tests {
 
         #[derive(Debug, MagicInstantiate)]
         enum FamilyTree {
-            #[magic(description = "Name and year of birth, no titles or honorifcs")]
+            #[magic(description = "Name and year of birth, no titles or honorifics")]
             Leaf(String, u32),
             Inner {
-                #[magic(description = "Name, no titles or honorifcs")]
+                #[magic(description = "Name, no titles or honorifics")]
                 name: String,
                 #[magic(description = "The depth of the generation, 0 for the first generation")]
                 generation_depth: u32,
